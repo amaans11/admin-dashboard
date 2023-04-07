@@ -1,0 +1,70 @@
+def utils = new BuildUtils()
+
+pipeline
+{
+   agent {
+       label 'slave'
+   }
+
+   environment {
+       REPOSITORY="admin-dashboard"
+       GIT_SERVICE_ACCOUNT = credentials("${BuildConstants.GIT_SERVICE_ACCOUNT_ID}")
+   }
+   tools {
+        nodejs "nodejs"
+    }
+  
+   stages {
+       stage ('Init') {
+           steps {
+               script{
+                   currentBuild.displayName = "service-${REPOSITORY}-${params.SERVICE_BRANCH}-${env.BUILD_NUMBER}"
+               }
+           }
+       }
+
+       stage('Checkout') {
+            steps {
+                script{
+                    utils.checkOut("${params.SERVICE_BRANCH}","${REPOSITORY}","${GIT_SERVICE_ACCOUNT_USR}")
+                }
+            }
+        }
+       
+       stage('Build'){
+           steps{
+                sh 'npm install'
+                sh 'npm run build' 
+            }
+        }
+
+
+       stage('AWS Deployment'){
+           steps{
+
+                dir('./build'){
+               sh 'mv ../appspec-configs/generic-appspec.yml ./appspec.yml'
+               sh 'mv ../automation-scripts/transfer.sh ./transfer.sh'
+               sh "sed -i 's:\${SERVICE_BRANCH}:$SERVICE_BRANCH:g;' ./transfer.sh" 
+               sh 'aws deploy push --profile $AWS_ENVIRONMENT --application-name $DASHBOARD-$REPOSITORY-$AWS_ENVIRONMENT --s3-location s3://admin-dashboard-codedeploy-$AWS_ENVIRONMENT/build --ignore-hidden-files;\
+                        DEPLOYMENT_ID=$(aws deploy --profile $AWS_ENVIRONMENT create-deployment --application-name $DASHBOARD-$REPOSITORY-$AWS_ENVIRONMENT --s3-location bucket=admin-dashboard-codedeploy-$AWS_ENVIRONMENT,key=build,bundleType=zip --deployment-group-name $DASHBOARD-$REPOSITORY-$AWS_ENVIRONMENT-group --output text);\
+                        echo $DEPLOYMENT_ID;\
+                        echo Waiting deployment to finish...;\
+                        aws deploy --profile $AWS_ENVIRONMENT wait deployment-successful --deployment-id $DEPLOYMENT_ID'
+                }
+           }        
+        }                             
+    }
+    post {
+        success {
+            script {
+                slackSend(channel: "#node-service-release",color: "#03fc41", message: "$DASHBOARD $REPOSITORY successfully deployed in $AWS_ENVIRONMENT")
+            }   
+        }
+        failure {
+            script {
+                slackSend(channel: "#node-service-release",color: "#fc0303", message: "$DASHBOARD $REPOSITORY fail to deploy in $AWS_ENVIRONMENT")
+            }   
+        }
+    }
+}
