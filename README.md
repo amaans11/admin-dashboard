@@ -1,8 +1,6 @@
 # Admin Dashboard
 
 
-This is an admin dashboard
-
 Release branch points to [staging][stage] environment and dev branch points to [dev][dev] environment. Feature branchs are used to test on localhost.
 
 > Staging env will be updated on wekly basis
